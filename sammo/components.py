@@ -8,7 +8,7 @@ import math
 import warnings
 
 import beartype
-from beartype.typing import Callable, Literal
+from beartype.typing import Callable, Dict, Literal
 from beartype.typing import Union as TUnion
 from frozendict import frozendict
 
@@ -62,6 +62,7 @@ class GenerateText(Component):
         on_error: Literal["raise", "empty_result"] = "empty_result",
         *,  # the following arguments are keyword only
         runner: Runner | None = None,
+        **extra_text_gen_kwargs,
     ):
         super().__init__(child, reference_id)
 
@@ -76,6 +77,7 @@ class GenerateText(Component):
         self._json_mode = json_mode
         self.dependencies = [self._child, self._history] if self._history else [self._child]
         self._override_runner = runner
+        self._extra_text_gen_kwargs = extra_text_gen_kwargs
 
         if seed != 0 and randomness == 0:
             warnings.warn("Seed is being used but randomness is 0.")
@@ -111,6 +113,7 @@ class GenerateText(Component):
                 seed=self._seed,
                 max_tokens=self._max_tokens,
                 json_mode=self._json_mode,
+                **self._extra_text_gen_kwargs,
             )
             return result.with_parent(parents).with_op(self)
         except Exception as e:

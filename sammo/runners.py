@@ -258,6 +258,13 @@ class BaseRunner(Runner):
                         }
                         raise TimeoutError
                     continue
+                except NonRetriableError as e:
+                    if "Invalid prompt: your prompt was flagged as potentially violating our usage policy." in e.args[0]:
+                        logger.error(f"Caching potential content policy violation to prevent retries: {request}")
+                        self._cache[fingerprint] = {
+                            "sammo.error.content_policy_violation": {"violation_message": e.args[0], "request": request}
+                        }
+                    raise e
                 except retry_on as e:
                     qualified_name = f"{type(e).__module__}.{type(e).__name__}".replace("builtins.", "")
                     self._throttler.update_job_stats(job_handle, failed=True, cost=0)
@@ -395,7 +402,10 @@ class OpenAIChat(OpenAIBaseRunner):
         revised_prompt = self._post_process_prompt(prompt)
         messages += [{"role": "user", "content": revised_prompt}]
 
-        request = dict(messages=messages, max_tokens=self._max_context_window or max_tokens, temperature=randomness)
+        request = dict(messages=messages, max_completion_tokens=self._max_context_window or max_tokens, temperature=randomness)
+        if self._model_id.startswith("o3"):
+            del request["temperature"] # HACK
+
         if json_mode is True:
             request["response_format"] = {"type": "json_object"}
         elif isinstance(json_mode, JsonSchema):
@@ -410,13 +420,21 @@ class OpenAIChat(OpenAIBaseRunner):
     def _to_llm_result(self, request: dict, json_data: dict, fingerprint: str | bytes) -> LLMResult:
         request_text = request["messages"][-1]["content"]
         prompt_logger.debug(f"\n\n\nAPI call:\n{request_text}\n->\n\n{json_data['choices'][0]['message']['content']}")
-        return LLMResult(
-            json_data["choices"][0]["message"]["content"],
-            history=request["messages"] + [json_data["choices"][0]["message"]],
-            costs=self._extract_costs(json_data),
-            request_text=request["messages"][-1]["content"],
-        )
-
+        if len(json_data["choices"]) == 1:
+            return LLMResult(
+                json_data["choices"][0]["message"]["content"],
+                history=request["messages"] + [json_data["choices"][0]["message"]],
+                costs=self._extract_costs(json_data),
+                request_text=request["messages"][-1]["content"],
+            )
+        else:
+            return LLMResult(
+                [choice["message"]["content"] for choice in json_data["choices"]],
+                history=request["messages"] + [json_data["choices"][0]["message"]], # history will be inconsistent for multi-responses
+                costs=self._extract_costs(json_data),
+                request_text=request["messages"][-1]["content"],
+            )
+               
     def _post_process_prompt(self, prompt: str):
         return prompt
 
