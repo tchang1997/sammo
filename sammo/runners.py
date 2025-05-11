@@ -370,6 +370,7 @@ class OpenAIChat(OpenAIBaseRunner):
         prompt: str,
         max_tokens: int | None = None,
         randomness: float | None = 0,
+        num_generations: int = 1,
         seed: int = 0,
         priority: int = 0,
         system_prompt: str | None = None,
@@ -402,7 +403,7 @@ class OpenAIChat(OpenAIBaseRunner):
         revised_prompt = self._post_process_prompt(prompt)
         messages += [{"role": "user", "content": revised_prompt}]
 
-        request = dict(messages=messages, max_completion_tokens=self._max_context_window or max_tokens, temperature=randomness)
+        request = dict(messages=messages, max_completion_tokens=self._max_context_window or max_tokens, temperature=randomness, n=num_generations)
         if self._model_id.startswith("o3"):
             del request["temperature"] # HACK
 
